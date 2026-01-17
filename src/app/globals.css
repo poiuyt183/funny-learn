@@ -1,26 +1,166 @@
 @import "tailwindcss";
 
+@plugin "tailwindcss-animate";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme {
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+
+  /* Primary */
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  /* Secondary */
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  /* Destructive */
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+
+  /* Muted */
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  /* Accent */
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  /* Popover */
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  /* Card */
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-sm: calc(var(--radius) - 4px);
+
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+
+  /* Fonts */
+  --font-heading: var(--font-fredoka);
+  --font-body: var(--font-nunito);
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+}
+
 :root {
-	--background: #ffffff;
-	--foreground: #171717;
+  /* Playful Kid Theme Colors */
+  --background: oklch(0.97 0.02 240); /* Sky-50 equivalent */
+  /* ====================================
+     COLOR PALETTE - Cute Storybook Theme
+     ==================================== */
+
+  /* Primary: Coral/Peach (Warm, Friendly, Adventurous) */
+  --primary: oklch(0.72 0.15 35); /* Warm coral */
+  --primary-foreground: oklch(0.98 0.01 35);
+
+  /* Secondary: Mint/Teal (Fresh, Calm, Magical) */
+  --secondary: oklch(0.68 0.12 175); /* Soft mint-teal */
+  --secondary-foreground: oklch(0.98 0.01 175);
+
+  /* Accent: Sunny Yellow (Joyful, Energetic) */
+  --accent: oklch(0.80 0.14 85); /* Warm sunny yellow */
+  --accent-foreground: oklch(0.20 0.01 85);
+
+  /* Muted: Cream/Beige (Soft, Cozy backgrounds) */
+  --muted: oklch(0.96 0.01 60); /* Warm cream */
+  --muted-foreground: oklch(0.45 0.02 60);
+
+  /* Destructive: Soft Red */
+  --destructive: oklch(0.6 0.2 20);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  /* Background & Foreground */
+  --background: oklch(0.995 0.005 60); /* Very soft warm white */
+  --foreground: oklch(0.25 0.02 30); /* Warm dark brown */
+
+  /* Card */
+  --card: oklch(0.98 0.005 40);
+  --card-foreground: oklch(0.25 0.02 30);
+
+  /* Popover */
+  --popover: oklch(0.98 0.005 40);
+  --popover-foreground: oklch(0.25 0.02 30);
+
+  /* Border */
+  --border: oklch(0.90 0.01 60); /* Warm light border */
+  --input: oklch(0.90 0.01 60);
+  --ring: oklch(0.72 0.15 35); /* Matches primary */
+
+  /* Radius for soft, rounded corners */
+  --radius: 1rem;
 }
 
-@theme inline {
-	--color-background: var(--background);
-	--color-foreground: var(--foreground);
-	--font-sans: var(--font-geist-sans);
-	--font-mono: var(--font-geist-mono);
+.dark {
+  /* Dark mode not primary focus, but keeping it sane */
+  --background: oklch(0.15 0.05 260);
+  --foreground: oklch(0.98 0.01 240);
+  --card: oklch(0.2 0.05 260);
+  --card-foreground: oklch(0.98 0.01 240);
+  --popover: oklch(0.2 0.05 260);
+  --popover-foreground: oklch(0.98 0.01 240);
+  --primary: oklch(0.65 0.18 245);
+  --primary-foreground: oklch(0.98 0.01 240);
+  --secondary: oklch(0.7 0.16 160);
+  --secondary-foreground: oklch(0.15 0.05 260);
+  --muted: oklch(0.25 0.05 260);
+  --muted-foreground: oklch(0.7 0.05 240);
+  --accent: oklch(0.8 0.18 85);
+  --accent-foreground: oklch(0.15 0.05 85);
+  --destructive: oklch(0.5 0.2 20);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.25 0.05 260);
+  --input: oklch(0.25 0.05 260);
+  --ring: oklch(0.65 0.18 245);
 }
 
-@media (prefers-color-scheme: dark) {
-	:root {
-		--background: #0a0a0a;
-		--foreground: #ededed;
-	}
+/* Base style adjustments */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground font-body;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-heading font-bold text-slate-800;
+  }
 }
 
-body {
-	background: var(--background);
-	color: var(--foreground);
-	font-family: Arial, Helvetica, sans-serif;
+/* Claymorphism utilities */
+@layer utilities {
+  .shadow-clay {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+                0 2px 4px -1px rgba(0, 0, 0, 0.06),
+                inset 0 4px 4px rgba(255, 255, 255, 0.5); /* Inner highlight for volume */
+  }
+  
+  .btn-bounce {
+    @apply transition-transform active:scale-95 duration-150;
+  }
 }

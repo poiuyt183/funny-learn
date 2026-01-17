@@ -1,0 +1,206 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  PARENT
+  STUDENT
+}
+
+enum SubscriptionPlan {
+  FREE
+  PREMIUM
+  FAMILY
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  EXPIRED
+  PAST_DUE
+}
+
+enum PaymentProvider {
+  STRIPE
+  VNPAY
+  MANUAL
+}
+
+model User {
+  id                 String   @id @default(cuid())
+  name               String?
+  email              String   @unique
+  emailVerified      Boolean
+  image              String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  role               Role     @default(PARENT)
+  onboardingComplete Boolean  @default(false)
+
+  sessions Session[]
+  accounts Account[]
+
+  children     ChildProfile[]
+  subscription Subscription?
+
+  @@map("user")
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String
+  expiresAt DateTime
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id @default(cuid())
+  userId                String
+  accountId             String
+  providerId            String
+  accessToken           String?
+  refreshToken          String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("verification")
+}
+
+model ChildProfile {
+  id                    String            @id @default(cuid())
+  parentId              String
+  name                  String
+  age                   Int
+  points                Int               @default(0)
+  personality           String[]
+  interests             String[]
+  mascotId              String?
+  username              String?           @unique // Kid login username
+  pinCode               String? // 4-6 digit PIN (hashed)
+  kidOnboardingComplete Boolean           @default(false) // Kid completed choosing mascot
+  mascot                Mascot?           @relation(fields: [mascotId], references: [id])
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+  parent                User              @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  conversationLogs      ConversationLog[]
+
+  @@map("child_profile")
+}
+
+model Mascot {
+  id              String   @id @default(cuid())
+  name            String
+  type            String // Dragon, Robot, Fairy, etc.
+  description     String
+  imageUrl        String // Path or URL to image
+  basePersonality String // Happy, Serious, Curious, etc.
+  baseGreeting    String // Default greeting message
+  traits          String[] // e.g. ["Brave", "Curious"]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  children ChildProfile[]
+
+  @@map("mascot")
+}
+
+model Subscription {
+  id         String             @id @default(cuid())
+  userId     String             @unique
+  plan       SubscriptionPlan   @default(FREE)
+  status     SubscriptionStatus @default(ACTIVE)
+  provider   PaymentProvider    @default(MANUAL)
+  externalId String? // ID from payment gateway
+  startDate  DateTime           @default(now())
+  endDate    DateTime?
+  isActive   Boolean            @default(true)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  payments PaymentHistory[]
+
+  @@map("subscription")
+}
+
+model PaymentHistory {
+  id             String          @id @default(cuid())
+  subscriptionId String
+  amount         Float
+  currency       String          @default("USD")
+  status         String // SUCCESS, FAILED, PENDING
+  provider       PaymentProvider
+  transactionId  String? // External transaction ID
+  description    String?
+  createdAt      DateTime        @default(now())
+  subscription   Subscription    @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@map("payment_history")
+}
+
+// ====================================
+// AI CONTENT MANAGEMENT MODELS
+// ====================================
+
+model AiPrompt {
+  id          String   @id @default(cuid())
+  name        String // Display name (e.g., "Socratic Teacher")
+  description String? // Purpose explanation
+  content     String   @db.Text // System prompt with variables {{child_name}}, {{mascot_name}}, etc.
+  safetyRules String[] // Blacklist keywords for content filtering
+  isActive    Boolean  @default(false)
+  version     Int      @default(1) // Track prompt iterations
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("ai_prompt")
+}
+
+model ConversationLog {
+  id         String   @id @default(cuid())
+  childId    String
+  sessionId  String // Group messages in the same conversation
+  userQuery  String   @db.Text
+  aiResponse String   @db.Text
+  promptUsed String? // Which prompt was active during this interaction
+  isFlagged  Boolean  @default(false)
+  flagReason String? // Why it was flagged (if applicable)
+  createdAt  DateTime @default(now())
+
+  child ChildProfile @relation(fields: [childId], references: [id], onDelete: Cascade)
+
+  @@index([childId])
+  @@index([sessionId])
+  @@index([isFlagged])
+  @@map("conversation_log")
+}
