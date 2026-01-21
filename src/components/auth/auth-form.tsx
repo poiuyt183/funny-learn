@@ -74,7 +74,7 @@ export function AuthForm({ type }: AuthFormProps) {
 
                         // Wait for session to establish
                         toast.success("Đăng nhập thành công!");
-                        router.push(callbackUrl || "/parent/dashboard");
+                        router.replace(callbackUrl || "/parent/dashboard");
                         router.refresh();
                     },
                     onError: (ctx) => {
@@ -99,7 +99,7 @@ export function AuthForm({ type }: AuthFormProps) {
                     onSuccess: () => {
                         toast.success("Tạo tài khoản thành công!");
                         // New users always go to onboarding
-                        router.push("/parent/add-child");
+                        router.replace("/parent/add-child");
                         router.refresh();
                     },
                     onError: (ctx) => {
