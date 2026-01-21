@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Loader2 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
     Form,
@@ -37,7 +37,6 @@ const ERROR_MAP: Record<string, string> = {
 };
 
 export function AuthForm({ type }: AuthFormProps) {
-    const router = useRouter();
     const searchParams = useSearchParams();
     const callbackUrl = searchParams.get("callbackUrl");
     const [isLoading, setIsLoading] = useState(false);

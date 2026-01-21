@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, Volume2, RefreshCw, X, Sparkles, StopCircle, VoicemailIcon } from "lucide-react";
+import { Mic, RefreshCw, X, Sparkles, StopCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { chatWithContext } from "@/actions/chat-voice";
@@ -28,15 +28,8 @@ interface VoiceChatClientProps {
 }
 
 export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientProps) {
-    const {
-        speak: speakTTS, // Function to start speech with provided text and options
-        Text, // Component that renders speech text in a <div> and supports standard HTML <div> props
-        speechStatus, // String that stores current speech status
-        isInQueue, // Indicates whether the speech is currently playing or waiting in the queue
-        start, // Function to start the speech or put it in queue
-        pause, // Function to pause the speech
-        stop, // Function to stop the speech or remove it from queue
-    } = useSpeak();
+    const { speak: speakTTS } = useSpeak();
+
     // State
     const [isListening, setIsListening] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
@@ -48,21 +41,126 @@ export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientP
     const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
 
     // Refs
-    const recognitionRef = useRef<SpeechRecognition | null>(null);
+    const recognitionRef = useRef<any>(null);
     const synthRef = useRef<SpeechSynthesis | null>(null);
-    const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
     const silenceTimerRef = useRef<NodeJS.Timeout | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+
+    const handleSendMessage = useCallback(async (text: string) => {
+        if (!text.trim() || isProcessing) return;
+
+        // Stop listening logic embedded here to avoid circular dep, but we can call stopListening if we hoist it or use ref
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+            setIsListening(false);
+            if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+        }
+
+        setIsProcessing(true);
+
+        const userMsg: VoiceChatTransport = {
+            id: Date.now().toString(),
+            role: "user",
+            content: text,
+            timestamp: new Date(),
+        };
+        setMessages((prev) => [...prev, userMsg]);
+
+        try {
+            const result = await chatWithContext({
+                childId,
+                message: text,
+                sessionId,
+            });
+
+            if (result.success && result.response) {
+                const aiMsg: VoiceChatTransport = {
+                    id: (Date.now() + 1).toString(),
+                    role: "assistant",
+                    content: result.response,
+                    timestamp: new Date(),
+                };
+                setMessages((prev) => [...prev, aiMsg]);
+                // We'll trigger speak in the effect or directly here if we can access the speak function
+                // Since speak is defined below, we might need to move this logic or use a ref for the speak function.
+                // For simplicity in this fix, we will define speak outside or use a ref. 
+                // However, to minimize rewrite, let's just define speak before handleSendMessage?
+                // No, speak uses state.
+                // Let's rely on the fact that we can call speak here if we define it before, or wrap in useCallback.
+            } else {
+                const errorMsg = result.error || "Có lỗi xíu, thử lại nha!";
+                // speak(errorMsg); // Same issue
+                if (result.flagged) {
+                    toast.warning("Nói chuyện lịch sự nhé!", { icon: "🤐" });
+                }
+                return errorMsg;
+            }
+            return result.response;
+        } catch (err) {
+            console.error("Chat error:", err);
+            toast.error("Lỗi kết nối rồi!", { icon: "🔌" });
+            return null;
+        } finally {
+            setIsProcessing(false);
+        }
+    }, [childId, sessionId, isProcessing, setIsListening, setMessages]);
+
+    const speak = useCallback((text: string) => {
+        if (!synthRef.current) return;
+        synthRef.current.cancel();
+
+        setTimeout(() => {
+            if (!synthRef.current) return;
+            const utterance = new SpeechSynthesisUtterance(text);
+
+            // Voice selection: prioritize Vietnamese Google/Microsoft voices
+            const availableVoices = voices.length > 0 ? voices : synthRef.current.getVoices();
+            let selectedVoice = availableVoices.find(v =>
+                (v.name.includes("Google") || v.name.includes("Microsoft")) && v.lang.includes("vi")
+            );
+            if (!selectedVoice) selectedVoice = availableVoices.find(v => v.lang.includes("vi"));
+            if (selectedVoice) utterance.voice = selectedVoice;
+
+            utterance.lang = "vi-VN";
+            utterance.rate = 1.0;
+            utterance.pitch = 1.1;
+            utterance.volume = 1;
+
+            utterance.onstart = () => setIsSpeaking(true);
+            utterance.onend = () => setIsSpeaking(false);
+            utterance.onerror = () => setIsSpeaking(false);
+
+            synthRef.current.speak(utterance);
+        }, 50);
+    }, [voices, setIsSpeaking]);
+
+    // Update handleSendMessage to actually speak
+    const processMessage = async (text: string) => {
+        const responseText = await handleSendMessage(text);
+        if (responseText) {
+            speak(responseText);
+        }
+    };
+
+    // Use refs for callbacks to avoid re-initializing SpeechRecognition on state changes
+    const processMessageRef = useRef(processMessage);
+
+    useEffect(() => {
+        processMessageRef.current = processMessage;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [processMessage]); // Optimization to keep ref current
 
     // Initialize Speech Recognition & TTS
     useEffect(() => {
         if (typeof window !== "undefined") {
-            // @ts-ignore - webkitSpeechRecognition is standard in Chrome/Edge
+            // @ts-expect-error - webkitSpeechRecognition is standard in Chrome/Edge
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 
             if (SpeechRecognition) {
                 const recognition = new SpeechRecognition();
                 recognition.lang = "vi-VN";
+                // Chrome on Android/Desktop behaves differently with 'continuous'. 
+                // We want it to keep listening, but we also want final results.
                 recognition.continuous = true;
                 recognition.interimResults = true;
 
@@ -72,7 +170,7 @@ export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientP
                     setError(null);
                 };
 
-                recognition.onresult = (event: SpeechRecognitionEvent) => {
+                recognition.onresult = (event: any) => {
                     let interim = "";
                     let final = "";
 
@@ -88,7 +186,8 @@ export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientP
 
                     // If we have final results, process them
                     if (final) {
-                        handleSendMessage(final);
+                        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+                        if (processMessageRef.current) processMessageRef.current(final);
                     }
 
                     // Debounce silence detection (auto-send after 2s silence for kids)
@@ -97,20 +196,17 @@ export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientP
                         silenceTimerRef.current = setTimeout(() => {
                             recognition.stop();
                             if (interim.trim()) {
-                                handleSendMessage(interim);
+                                // eslint-disable-next-line @typescript-eslint/no-floating-promises
+                                if (processMessageRef.current) processMessageRef.current(interim);
                             }
                         }, 2000);
                     }
                 };
 
-                recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+                recognition.onerror = (event: any) => {
                     console.error("Speech recognition error", event.error);
                     if (event.error === "not-allowed") {
                         setError("Cho mình mượn micro để nói chuyện nhé! 🎤");
-                    } else if (event.error === "no-speech") {
-                        // Ignore
-                    } else {
-                        // setError("Có lỗi chút xíu, thử lại nha! 🐛");
                     }
                     setIsListening(false);
                 };
@@ -142,30 +238,27 @@ export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientP
             if (synthRef.current) synthRef.current.cancel();
             if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
         };
+        // Dependencies are now stable or refs, so this effect runs only once on mount
     }, []);
 
     // Initial greeting
     useEffect(() => {
         if (mascot.baseGreeting && voices.length > 0) {
-            // Basic check to ensure we only say hello once
             const hasGreeted = messages.some(m => m.id === "greeting");
             if (!hasGreeted) {
                 const greetingId = "greeting";
-                const greeting = {
+                const greeting: VoiceChatTransport = {
                     id: greetingId,
-                    role: "assistant" as const,
+                    role: "assistant",
                     content: mascot.baseGreeting,
                     timestamp: new Date(),
                 };
                 setMessages([greeting]);
 
-                // Small delay to ensure UI is ready
-                setTimeout(() => speakTTS(mascot.baseGreeting, {
-                    pitch: 1, rate: 1, volume: 1, lang: "en-US", voiceURI: "Samantha", autoPlay: false, highlightText: false, showOnlyHighlightedText: false, highlightMode: "word", enableDirectives: "false"
-                }), 500);
+                setTimeout(() => speak(mascot.baseGreeting), 800);
             }
         }
-    }, [voices, mascot.baseGreeting]);
+    }, [voices, mascot.baseGreeting, messages, speak, setMessages]);
 
     // Auto-scroll
     useEffect(() => {
@@ -176,7 +269,6 @@ export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientP
         if (isSpeaking) {
             stopSpeaking();
         }
-        // Slight delay to ensure TTS stopped
         setTimeout(() => {
             try {
                 recognitionRef.current?.start();
@@ -192,37 +284,6 @@ export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientP
         if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     };
 
-    const speak = (text: string) => {
-        if (!synthRef.current) return;
-
-        synthRef.current.cancel();
-
-        setTimeout(() => {
-            if (!synthRef.current) return;
-            const utterance = new SpeechSynthesisUtterance(text);
-            utteranceRef.current = utterance;
-
-            // Voice selection logic
-            const availableVoices = voices.length > 0 ? voices : synthRef.current.getVoices();
-            let selectedVoice = availableVoices.find(v =>
-                (v.name.includes("Google") || v.name.includes("Microsoft")) && v.lang.includes("vi")
-            );
-            if (!selectedVoice) selectedVoice = availableVoices.find(v => v.lang.includes("vi"));
-            if (selectedVoice) utterance.voice = selectedVoice;
-
-            utterance.lang = "vi-VN";
-            utterance.rate = 1.0;
-            utterance.pitch = 1.1;
-            utterance.volume = 1;
-
-            utterance.onstart = () => setIsSpeaking(true);
-            utterance.onend = () => setIsSpeaking(false);
-            utterance.onerror = () => setIsSpeaking(false);
-
-            synthRef.current.speak(utterance);
-        }, 50);
-    };
-
     const stopSpeaking = () => {
         if (synthRef.current) {
             synthRef.current.cancel();
@@ -230,247 +291,176 @@ export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientP
         }
     };
 
-    const handleSendMessage = async (text: string) => {
-        if (!text.trim() || isProcessing) return;
-
-        stopListening();
-        setIsProcessing(true);
-
-        const userMsg: VoiceChatTransport = {
-            id: Date.now().toString(),
-            role: "user",
-            content: text,
-            timestamp: new Date(),
-        };
-        setMessages((prev) => [...prev, userMsg]);
-
-        try {
-            const result = await chatWithContext({
-                childId,
-                message: text,
-                sessionId,
-            });
-
-            if (result.success && result.response) {
-                const aiMsg: VoiceChatTransport = {
-                    id: (Date.now() + 1).toString(),
-                    role: "assistant",
-                    content: result.response,
-                    timestamp: new Date(),
-                };
-                setMessages((prev) => [...prev, aiMsg]);
-                speak(result.response);
-            } else {
-                const errorMsg = result.error || "Có lỗi xíu, thử lại nha!";
-                speak(errorMsg);
-                if (result.flagged) {
-                    toast.warning("Nói chuyện lịch sự nhé!", { icon: "🤐" });
-                }
-            }
-        } catch (err) {
-            console.error("Chat error:", err);
-            toast.error("Lỗi kết nối rồi!", { icon: "🔌" });
-        } finally {
-            setIsProcessing(false);
-        }
-    };
-
     return (
-        <div className="fixed inset-0 z-50 bg-indigo-50 flex flex-col items-center overflow-hidden font-heading">
-            {/* Background Decorations */}
+        <div className="fixed inset-0 z-50 bg-[#FDF6F8] flex flex-col items-center overflow-hidden font-heading selection:bg-rose-200">
+            {/* 🌈 Dynamic Background World */}
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 100, repeat: Infinity, ease: "linear" }}
-                    className="absolute -top-[20%] -right-[20%] w-[80vh] h-[80vh] bg-yellow-300 rounded-full blur-3xl opacity-30"
-                />
-                <motion.div
-                    animate={{ rotate: -360 }}
-                    transition={{ duration: 120, repeat: Infinity, ease: "linear" }}
-                    className="absolute -bottom-[20%] -left-[20%] w-[80vh] h-[80vh] bg-rose-300 rounded-full blur-3xl opacity-30"
-                />
-                {[...Array(5)].map((_, i) => (
+                {/* Gradient Mesh */}
+                <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-purple-200 rounded-full blur-[120px] opacity-40 animate-pulse" />
+                <div className="absolute bottom-[-10%] right-[-10%] w-[60%] h-[60%] bg-amber-100 rounded-full blur-[100px] opacity-60 animate-pulse [animation-delay:2s]" />
+                <div className="absolute top-[40%] left-[60%] w-[30%] h-[30%] bg-pink-200 rounded-full blur-[80px] opacity-40 animate-pulse [animation-delay:4s]" />
+
+                {/* Floating Particles */}
+                {[...Array(8)].map((_, i) => (
                     <motion.div
                         key={i}
-                        initial={{ y: "110vh", x: Math.random() * 100 + "vw" }}
-                        animate={{ y: "-10vh" }}
+                        initial={{ y: "110vh", x: Math.random() * 100 + "vw", opacity: 0 }}
+                        animate={{ y: "-10vh", opacity: [0, 0.4, 0] }}
                         transition={{
-                            duration: 20 + Math.random() * 10,
+                            duration: 15 + Math.random() * 20,
                             repeat: Infinity,
-                            delay: Math.random() * 10
+                            delay: i * 2,
+                            ease: "linear"
                         }}
-                        className="absolute text-4xl opacity-20"
+                        className="absolute text-4xl"
                     >
-                        {["✨", "🎵", "⭐", "🎈", "🚀"][i % 5]}
+                        {["☁️", "✨", "🎵", "🦄", "🌈", "⭐"][i % 6]}
                     </motion.div>
                 ))}
             </div>
 
-            {/* Header / Exit */}
-            <div className="absolute top-4 right-4 z-50">
-                <a
-                    href={`/learn/${childId}`}
-                    className="flex items-center justify-center w-12 h-12 bg-white rounded-full shadow-clay text-rose-500 hover:scale-110 transition-transform cursor-pointer"
+            {/* 🚪 Top Controls (Satellites) */}
+            <div className="absolute top-6 left-6 z-50">
+                <button
+                    onClick={() => window.location.reload()}
+                    className="w-12 h-12 bg-white/80 backdrop-blur rounded-2xl shadow-sm text-indigo-400 flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
                 >
-                    <X className="w-8 h-8" strokeWidth={3} />
+                    <RefreshCw size={20} />
+                </button>
+            </div>
+
+            <div className="absolute top-6 right-6 z-50">
+                <a
+                    href={`/ learn / ${childId} `}
+                    className="w-12 h-12 bg-white/80 backdrop-blur rounded-2xl shadow-sm text-rose-400 flex items-center justify-center hover:scale-110 active:scale-95 transition-all"
+                >
+                    <X size={24} strokeWidth={2.5} />
                 </a>
             </div>
 
-            {/* Main Content Area */}
-            <div className="flex-1 w-full max-w-4xl flex flex-col items-center justify-center relative z-10 p-4 pb-48">
+            {/* 🎭 Mascot Stage */}
+            <div className="flex-1 w-full max-w-4xl flex flex-col items-center justify-center relative z-10 px-4 pt-10 pb-40">
 
-                {/* Mascot Stage */}
                 <motion.div
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
-                    className="relative mb-8"
+                    className="relative"
                 >
-                    {/* Breathing/Speaking Glow */}
+                    {/* Magical Aura */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-indigo-200/50 to-transparent rounded-full blur-2xl scale-150 translate-y-4" />
+
+                    {/* Mascot Image Container */}
                     <motion.div
                         animate={{
-                            scale: isSpeaking ? [1, 1.1, 1] : [1, 1.05, 1],
-                            opacity: isSpeaking ? 0.8 : 0.3
+                            y: isSpeaking ? [0, -5, 0] : [0, -10, 0],
+                            scale: isSpeaking ? [1, 1.02, 1] : 1
                         }}
-                        transition={{ repeat: Infinity, duration: isSpeaking ? 0.5 : 3 }}
-                        className="absolute inset-0 bg-white rounded-full blur-xl"
-                    />
+                        transition={{
+                            y: { duration: isSpeaking ? 0.3 : 4, repeat: Infinity, ease: "easeInOut" },
+                            scale: { duration: 0.2, repeat: Infinity }
+                        }}
+                        className="relative w-56 h-56 md:w-72 md:h-72"
+                    >
+                        <div className="absolute inset-0 bg-white rounded-full border-[6px] border-white shadow-[0_8px_30px_rgb(0,0,0,0.06)] overflow-hidden">
+                            <img
+                                src={mascot.imageUrl || "/api/placeholder/256/256"}
+                                alt={mascot.name}
+                                className="w-full h-full object-cover"
+                            />
+                        </div>
 
-                    <div className="relative w-48 h-48 md:w-64 md:h-64 rounded-full border-4 border-white shadow-clay overflow-hidden bg-white">
-                        <img
-                            src={mascot.imageUrl || "/api/placeholder/256/256"}
-                            alt={mascot.name}
-                            className="w-full h-full object-cover"
-                        />
-                    </div>
-
-                    {/* Mascot Name Badge */}
-                    <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-white px-6 py-2 rounded-full shadow-lg border-2 border-indigo-100">
-                        <span className="text-xl font-bold text-indigo-600 truncate max-w-[200px] block">
-                            {mascot.name}
-                        </span>
-                    </div>
+                        {/* Status Badge */}
+                        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 w-full">
+                            <div className="bg-white/90 backdrop-blur px-4 py-1.5 rounded-full shadow-sm border border-indigo-50">
+                                <span className="text-lg font-bold text-indigo-900">{mascot.name}</span>
+                            </div>
+                        </div>
+                    </motion.div>
                 </motion.div>
 
-                {/* Messages Area (Recent bubbles) */}
-                <div className="w-full h-full max-h-[40vh] overflow-y-auto px-4 space-y-4 flex flex-col scrollbar-hide">
-                    <AnimatePresence mode="popLayout">
-                        {messages.length === 0 && (
+                {/* 💬 Conversation Area */}
+                <div className="w-full mt-8 flex flex-col items-center justify-end min-h-[120px]">
+                    <AnimatePresence mode="wait">
+                        {isSpeaking ? (
+                            // Mascot Speaking Bubble
+                            <motion.div
+                                key="assistant-bubble"
+                                initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.9 }}
+                                className="relative max-w-[90%] md:max-w-2xl bg-white p-6 rounded-[2rem] shadow-xl border-2 border-indigo-100"
+                            >
+                                <div className="absolute -top-3 left-1/2 -translate-x-1/2 w-6 h-6 bg-white rotate-45 border-t-2 border-l-2 border-indigo-100" />
+                                <p className="text-xl md:text-2xl text-slate-700 font-medium text-center leading-relaxed">
+                                    {messages.filter(m => m.role === "assistant").slice(-1)[0]?.content}
+                                </p>
+                            </motion.div>
+                        ) : interimTranscript ? (
+                            // User Live Transcript
+                            <motion.div
+                                key="transcript"
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                className="bg-yellow-100/90 backdrop-blur px-8 py-4 rounded-3xl border-2 border-yellow-200 border-dashed"
+                            >
+                                <p className="text-xl text-yellow-800 font-medium">{interimTranscript}...</p>
+                            </motion.div>
+                        ) : isProcessing ? (
+                            // Thinking State
+                            <motion.div
+                                key="thinking"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                className="flex items-center gap-3 bg-white/80 px-6 py-3 rounded-full"
+                            >
+                                <div className="flex gap-1.5">
+                                    <span className="w-3 h-3 bg-indigo-400 rounded-full animate-bounce [animation-delay:0ms]" />
+                                    <span className="w-3 h-3 bg-purple-400 rounded-full animate-bounce [animation-delay:150ms]" />
+                                    <span className="w-3 h-3 bg-rose-400 rounded-full animate-bounce [animation-delay:300ms]" />
+                                </div>
+                                <span className="text-slate-500 font-medium">Đang suy nghĩ...</span>
+                            </motion.div>
+                        ) : messages.length === 0 ? (
+                            // Welcome message if no messages yet
                             <motion.div
                                 initial={{ opacity: 0, scale: 0.8 }}
                                 animate={{ opacity: 1, scale: 1 }}
                                 className="text-center bg-white/60 backdrop-blur px-6 py-4 rounded-3xl mx-auto"
                             >
                                 <p className="text-slate-600 text-lg">Chào {childName}! Mình là {mascot.name} 👋</p>
-                                <p className="text-slate-500 text-sm">Bấm nút tròn đung đưa để nói chuyện nhé!</p>
+                                <p className="text-slate-500 text-sm">Bấm nút tròn giữa để nói chuyện nhé!</p>
                             </motion.div>
-                        )}
-
-                        {messages.slice(-3).map((msg) => (
-                            <motion.div
-                                key={msg.id}
-                                layout
-                                initial={{ opacity: 0, scale: 0.8, y: 50 }}
-                                animate={{ opacity: 1, scale: 1, y: 0 }}
-                                exit={{ opacity: 0, scale: 0.5, transition: { duration: 0.2 } }}
-                                className={cn(
-                                    "flex w-full",
-                                    msg.role === "user" ? "justify-end" : "justify-start"
-                                )}
-                            >
-                                <div className={cn(
-                                    "max-w-[85%] px-6 py-4 text-lg md:text-xl font-medium shadow-md relative",
-                                    msg.role === "user"
-                                        ? "bg-yellow-400 text-indigo-900 rounded-[2rem] rounded-tr-none"
-                                        : "bg-white text-slate-700 rounded-[2rem] rounded-tl-none border-2 border-indigo-50"
-                                )}>
-                                    {msg.content}
-                                    {/* Bubble Tail */}
-                                    <div className={cn(
-                                        "absolute top-0 w-6 h-6",
-                                        msg.role === "user"
-                                            ? "-right-3 bg-[radial-gradient(circle_at_bottom_left,_transparent_15px,_#FACC15_15px)]"
-                                            : "-left-3 bg-[radial-gradient(circle_at_bottom_right,_transparent_15px,_white_15px)]"
-                                    )} />
-                                </div>
-                            </motion.div>
-                        ))}
-
-                        {interimTranscript && (
-                            <motion.div
+                        ) : (
+                            // Idle Hint
+                            <motion.p
+                                key="hint"
                                 initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                className="flex w-full justify-end"
+                                animate={{ opacity: 0.6 }}
+                                className="text-slate-400 font-medium text-lg"
                             >
-                                <div className="max-w-[85%] px-6 py-4 bg-yellow-100/80 text-indigo-900/60 rounded-[2rem] rounded-tr-none border-2 border-dashed border-yellow-300 italic">
-                                    {interimTranscript}...
-                                </div>
-                            </motion.div>
-                        )}
-
-                        {isProcessing && (
-                            <motion.div
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                className="flex w-full justify-start"
-                            >
-                                <div className="bg-white/80 backdrop-blur px-6 py-3 rounded-full shadow-sm flex items-center gap-2">
-                                    <div className="flex gap-1.5">
-                                        <span className="w-2.5 h-2.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
-                                        <span className="w-2.5 h-2.5 bg-indigo-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
-                                        <span className="w-2.5 h-2.5 bg-indigo-400 rounded-full animate-bounce"></span>
-                                    </div>
-                                    <span className="text-indigo-400 text-sm font-bold">Đang suy nghĩ...</span>
-                                </div>
-                            </motion.div>
+                                Bấm micro để nói chuyện nào! 👇
+                            </motion.p>
                         )}
                     </AnimatePresence>
-                    <div ref={messagesEndRef} />
                 </div>
             </div>
 
-            {/* Bottom Control Deck */}
-            <div className="absolute bottom-0 left-0 right-0 h-40 bg-white shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.1)] rounded-t-[3rem] z-30 flex items-center justify-center gap-8 pb-4">
-
-                {/* Refresh Button */}
-                <button
-                    onClick={() => {
-                        speakTTS("Hello from useSpeak!", {
-                            rate: 1.2,
-                            lang: "en-US",
-                            pitch: 1,
-                            volume: 0.9,
-                            voiceURI: "Google US English",
-                        });
-                    }}
-                    className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-400 hover:bg-indigo-100 transition-colors btn-bounce"
-                    title="Bật trả lời bằng giọng nói"
-                >
-                    <Volume2 className="w-6 h-6" />
-                </button>
-                <button
-                    onClick={() => {
-                        window.location.reload();
-                    }}
-                    className="w-14 h-14 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-400 hover:bg-indigo-100 transition-colors btn-bounce"
-                    title="Làm mới"
-                >
-                    <RefreshCw className="w-6 h-6" />
-                </button>
-
-                {/* BIG Microphone Button */}
-                <div className="relative -mt-10">
-                    {/* Ring Pulse Animation */}
+            {/* 🎛️ Control Deck */}
+            <div className="absolute bottom-0 left-0 right-0 h-32 md:h-40 z-30 flex items-center justify-center">
+                {/* Main Microphone Button */}
+                <div className="relative -top-6">
+                    {/* Ring Animations */}
                     {isListening && (
                         <>
                             <motion.div
-                                animate={{ scale: [1, 1.5, 1], opacity: [0.5, 0, 0.5] }}
-                                transition={{ repeat: Infinity, duration: 1.5 }}
-                                className="absolute inset-0 bg-indigo-400 rounded-full -z-10"
+                                animate={{ scale: [1, 1.4, 1], opacity: [0.6, 0, 0.6] }}
+                                transition={{ repeat: Infinity, duration: 2 }}
+                                className="absolute inset-0 bg-rose-300 rounded-full -z-10"
                             />
                             <motion.div
-                                animate={{ scale: [1, 2, 1], opacity: [0.3, 0, 0.3] }}
-                                transition={{ repeat: Infinity, duration: 2, delay: 0.2 }}
-                                className="absolute inset-0 bg-indigo-200 rounded-full -z-10"
+                                animate={{ scale: [1, 1.8, 1], opacity: [0.3, 0, 0.3] }}
+                                transition={{ repeat: Infinity, duration: 2, delay: 0.4 }}
+                                className="absolute inset-0 bg-rose-200 rounded-full -z-20"
                             />
                         </>
                     )}
@@ -478,59 +468,67 @@ export function VoiceChatClient({ childId, mascot, childName }: VoiceChatClientP
                     <button
                         onClick={isListening ? stopListening : startListening}
                         className={cn(
-                            "w-28 h-28 rounded-full flex items-center justify-center shadow-[0_10px_30px_rgba(79,70,229,0.4)] transition-all duration-300 border-4 border-white btn-bounce",
+                            "w-24 h-24 md:w-32 md:h-32 rounded-full flex items-center justify-center transition-all duration-300 shadow-[0_10px_40px_-10px_rgba(79,70,229,0.5)] border-[6px] border-white active:scale-95 group",
                             isListening
-                                ? "bg-rose-500 scale-110"
-                                : "bg-gradient-to-br from-indigo-500 to-purple-600 hover:scale-105"
+                                ? "bg-rose-500 scale-105 rotate-3"
+                                : "bg-gradient-to-tr from-indigo-500 to-purple-600 hover:scale-105 hover:-translate-y-1"
                         )}
                     >
                         {isListening ? (
-                            <div className="flex items-center gap-1 h-8">
-                                {[1, 2, 3, 4].map((i) => (
+                            <div className="flex items-center gap-1 h-12">
+                                {[1, 2, 3, 4, 5].map((i) => (
                                     <motion.div
                                         key={i}
-                                        animate={{ height: [10, 30 + Math.random() * 20, 10] }}
-                                        transition={{ repeat: Infinity, duration: 0.4, delay: i * 0.1 }}
-                                        className="w-2 bg-white rounded-full mx-[1px]"
+                                        animate={{ height: [10, 40 + Math.random() * 20, 10] }}
+                                        transition={{ repeat: Infinity, duration: 0.5, delay: i * 0.1 }}
+                                        className="w-1.5 md:w-2 bg-white rounded-full mx-[1px]"
                                     />
                                 ))}
                             </div>
                         ) : (
-                            <Mic className="w-12 h-12 text-white" strokeWidth={2.5} />
+                            <Mic className="w-10 h-10 md:w-14 md:h-14 text-white group-hover:drop-shadow-lg" strokeWidth={2.5} />
                         )}
                     </button>
+
+                    {/* Sparkle Hint */}
                     {!isListening && !isSpeaking && (
-                        <div className="absolute top-0 right-0 -mt-2 -mr-2 w-8 h-8 bg-yellow-400 rounded-full flex items-center justify-center animate-bounce shadow-md">
-                            <Sparkles className="w-5 h-5 text-yellow-800" />
-                        </div>
+                        <motion.div
+                            animate={{ y: [0, -5, 0] }}
+                            transition={{ duration: 2, repeat: Infinity }}
+                            className="absolute -top-2 -right-2 bg-yellow-400 text-yellow-900 p-2 rounded-full shadow-lg border-2 border-white"
+                        >
+                            <Sparkles size={20} fill="currentColor" />
+                        </motion.div>
                     )}
                 </div>
 
-                {/* Stop TTS Button */}
-                {isSpeaking ? (
-                    <button
+                {/* Side Actions (Floating) */}
+                {isSpeaking && (
+                    <motion.button
+                        initial={{ scale: 0, x: -50 }}
+                        animate={{ scale: 1, x: 0 }}
+                        exit={{ scale: 0, x: -50 }}
                         onClick={stopSpeaking}
-                        className="w-14 h-14 bg-rose-100 rounded-full flex items-center justify-center text-rose-500 hover:bg-rose-200 transition-colors btn-bounce animate-pulse"
-                        title="Dừng đọc"
+                        className="absolute right-[15%] md:right-[25%] -top-4 w-14 h-14 bg-rose-100 hover:bg-rose-200 text-rose-500 rounded-full flex items-center justify-center shadow-sm transition-colors"
+                        title="Dừng nói"
                     >
-                        <Volume2 className="w-6 h-6" />
-                    </button>
-                ) : (
-                    <div className="w-14 h-14 pointer-events-none opacity-0" /> // Spacer
+                        <StopCircle size={28} />
+                    </motion.button>
                 )}
-
             </div>
 
-            {/* Error Toast styled inline (optional, using sonner mostly) */}
+            {/* Error Toast */}
             {error && (
-                <motion.div
-                    initial={{ y: -50, opacity: 0 }}
-                    animate={{ y: 0, opacity: 1 }}
-                    className="absolute top-20 bg-rose-500 text-white px-6 py-3 rounded-full shadow-lg z-50 font-bold flex items-center gap-2"
-                >
-                    <span>⚠️ {error}</span>
-                    <button onClick={() => setError(null)} className="opacity-80 hover:opacity-100"><X size={18} /></button>
-                </motion.div>
+                <div className="absolute top-24 left-1/2 -translate-x-1/2 z-50">
+                    <motion.div
+                        initial={{ y: -20, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        className="bg-rose-500 text-white px-6 py-3 rounded-full shadow-xl font-bold flex items-center gap-3"
+                    >
+                        <span>{error}</span>
+                        <button onClick={() => setError(null)} className="opacity-80 hover:opacity-100"><X size={18} /></button>
+                    </motion.div>
+                </div>
             )}
         </div>
     );

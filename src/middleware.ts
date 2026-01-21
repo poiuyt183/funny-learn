@@ -23,7 +23,7 @@ export async function middleware(request: NextRequest) {
     const hasSession = !!sessionToken?.value;
 
     const isProtected = pathname.startsWith("/parent") || pathname.startsWith("/admin");
-    const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up";
+    // const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up";
 
     // Redirect unauthenticated users from protected routes
     if (!hasSession && isProtected) {
