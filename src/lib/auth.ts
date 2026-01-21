@@ -22,6 +22,20 @@ export const auth = betterAuth({
     trustedOrigins: [
         "https://funny-learn.vercel.app",
         "https://funnylearn.khuyen.blog",
+        "https://funny-learn.khuyen-dev183.workers.dev",
         "http://localhost:3000",
     ],
+    advanced: {
+        cookiePrefix: "better-auth",
+        useSecureCookies: process.env.NODE_ENV === "production",
+        crossSubDomainCookies: {
+            enabled: true,
+        },
+    },
+    session: {
+        cookieCache: {
+            enabled: true,
+            maxAge: 5 * 60, // 5 minutes
+        },
+    },
 });

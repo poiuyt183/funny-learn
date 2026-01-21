@@ -66,15 +66,16 @@ export function AuthForm({ type }: AuthFormProps) {
                     password: data.password,
                 }, {
                     onSuccess: async () => {
-                        // Fetch user to check onboarding status 
-                        // Note: better-auth client session might not have updated 'onboardingComplete' yet if it's not in the session payload. 
-                        // For now, we assume Dashboard handles redirect if onboarding needed, OR we fetch session.
-                        // Given the requirement to redirect smart:
-                        // If login success, we assume 'onboardingComplete' check will be done by middleware or dashboard.
-
-                        // Wait for session to establish
                         toast.success("Đăng nhập thành công!");
-                        window.location.href = callbackUrl || "/parent/dashboard";
+
+                        // Use router.refresh() to update session state, then navigate
+                        router.refresh();
+
+                        // Small delay to ensure session is updated
+                        await new Promise(resolve => setTimeout(resolve, 100));
+
+                        // Navigate using Next.js router
+                        router.push(callbackUrl || "/parent/dashboard");
                     },
                     onError: (ctx) => {
                         const msg = ERROR_MAP[ctx.error.message?.toUpperCase() || ""] || "Đăng nhập thất bại.";
@@ -95,10 +96,15 @@ export function AuthForm({ type }: AuthFormProps) {
                     password: regData.password,
                     name: regData.name,
                 }, {
-                    onSuccess: () => {
+                    onSuccess: async () => {
                         toast.success("Tạo tài khoản thành công!");
+
+                        // Refresh session and navigate
+                        router.refresh();
+                        await new Promise(resolve => setTimeout(resolve, 100));
+
                         // New users always go to onboarding
-                        window.location.href = "/parent/add-child";
+                        router.push("/parent/add-child");
                     },
                     onError: (ctx) => {
                         const msg = ERROR_MAP[ctx.error.message?.toUpperCase() || ""] || ctx.error.message || "Đăng ký thất bại.";

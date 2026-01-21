@@ -15,17 +15,20 @@ export async function middleware(request: NextRequest) {
     }
 
     // Check for Better Auth session cookie
-    const sessionToken = request.cookies.get("better-auth.session_token");
-    const hasSession = !!sessionToken;
+    // Better Auth uses different cookie names based on configuration
+    const sessionToken = request.cookies.get("better-auth.session_token") ||
+        request.cookies.get("better-auth.session-token") ||
+        request.cookies.get("session_token");
+
+    const hasSession = !!sessionToken?.value;
 
     const isProtected = pathname.startsWith("/parent") || pathname.startsWith("/admin");
     const isAuthPage = pathname === "/sign-in" || pathname === "/sign-up";
 
     // Redirect unauthenticated users from protected routes
     if (!hasSession && isProtected) {
-        return NextResponse.redirect(
-            new URL(`/sign-in?callbackUrl=${encodeURIComponent(pathname)}`, request.url)
-        );
+        const url = new URL(`/sign-in?callbackUrl=${encodeURIComponent(pathname)}`, request.url);
+        return NextResponse.redirect(url);
     }
 
     // Redirect authenticated users away from auth pages
