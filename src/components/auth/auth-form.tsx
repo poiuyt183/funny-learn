@@ -74,8 +74,7 @@ export function AuthForm({ type }: AuthFormProps) {
 
                         // Wait for session to establish
                         toast.success("Đăng nhập thành công!");
-                        router.replace(callbackUrl || "/parent/dashboard");
-                        router.refresh();
+                        window.location.href = callbackUrl || "/parent/dashboard";
                     },
                     onError: (ctx) => {
                         const msg = ERROR_MAP[ctx.error.message?.toUpperCase() || ""] || "Đăng nhập thất bại.";
@@ -99,8 +98,7 @@ export function AuthForm({ type }: AuthFormProps) {
                     onSuccess: () => {
                         toast.success("Tạo tài khoản thành công!");
                         // New users always go to onboarding
-                        router.replace("/parent/add-child");
-                        router.refresh();
+                        window.location.href = "/parent/add-child";
                     },
                     onError: (ctx) => {
                         const msg = ERROR_MAP[ctx.error.message?.toUpperCase() || ""] || ctx.error.message || "Đăng ký thất bại.";
