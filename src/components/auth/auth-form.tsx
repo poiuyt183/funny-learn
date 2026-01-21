@@ -68,14 +68,12 @@ export function AuthForm({ type }: AuthFormProps) {
                     onSuccess: async () => {
                         toast.success("Đăng nhập thành công!");
 
-                        // Use router.refresh() to update session state, then navigate
-                        router.refresh();
+                        // For Cloudflare Workers, we need to wait for the cookie to be set
+                        // and use window.location.href to ensure proper session establishment
+                        await new Promise(resolve => setTimeout(resolve, 500));
 
-                        // Small delay to ensure session is updated
-                        await new Promise(resolve => setTimeout(resolve, 100));
-
-                        // Navigate using Next.js router
-                        router.push(callbackUrl || "/parent/dashboard");
+                        // Use full page reload to ensure session cookie is recognized
+                        window.location.href = callbackUrl || "/parent/dashboard";
                     },
                     onError: (ctx) => {
                         const msg = ERROR_MAP[ctx.error.message?.toUpperCase() || ""] || "Đăng nhập thất bại.";
@@ -99,12 +97,11 @@ export function AuthForm({ type }: AuthFormProps) {
                     onSuccess: async () => {
                         toast.success("Tạo tài khoản thành công!");
 
-                        // Refresh session and navigate
-                        router.refresh();
-                        await new Promise(resolve => setTimeout(resolve, 100));
+                        // Wait for cookie to be set on Cloudflare Workers
+                        await new Promise(resolve => setTimeout(resolve, 500));
 
                         // New users always go to onboarding
-                        router.push("/parent/add-child");
+                        window.location.href = "/parent/add-child";
                     },
                     onError: (ctx) => {
                         const msg = ERROR_MAP[ctx.error.message?.toUpperCase() || ""] || ctx.error.message || "Đăng ký thất bại.";

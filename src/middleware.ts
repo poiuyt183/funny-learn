@@ -32,11 +32,11 @@ export async function middleware(request: NextRequest) {
     }
 
     // Redirect authenticated users away from auth pages
-    // Note: We can't check role/onboarding here without fetching session
-    // So we redirect to a default page and let the page component handle further routing
-    if (hasSession && isAuthPage) {
-        return NextResponse.redirect(new URL("/parent/dashboard", request.url));
-    }
+    // REMOVED: This causes redirect loops on Cloudflare Workers because cookies
+    // aren't immediately available after login. The auth form handles navigation.
+    // if (hasSession && isAuthPage) {
+    //     return NextResponse.redirect(new URL("/parent/dashboard", request.url));
+    // }
 
     // For protected routes, allow the request to proceed
     // Role-based access control and onboarding checks will be handled by page components
