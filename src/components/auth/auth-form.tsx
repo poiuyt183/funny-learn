@@ -66,11 +66,15 @@ export function AuthForm({ type }: AuthFormProps) {
                     password: data.password,
                 }, {
                     onSuccess: async () => {
+                        console.log("[AUTH] Login successful, waiting for cookie...");
                         toast.success("Đăng nhập thành công!");
 
                         // For Cloudflare Workers, we need to wait for the cookie to be set
                         // and use window.location.href to ensure proper session establishment
                         await new Promise(resolve => setTimeout(resolve, 500));
+
+                        console.log("[AUTH] Cookies after delay:", document.cookie);
+                        console.log("[AUTH] Redirecting to:", callbackUrl || "/parent/dashboard");
 
                         // Use full page reload to ensure session cookie is recognized
                         window.location.href = callbackUrl || "/parent/dashboard";
