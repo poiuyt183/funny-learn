@@ -13,6 +13,7 @@
 		"cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts"
 	},
 	"dependencies": {
+		"@google/generative-ai": "^0.24.1",
 		"@hookform/resolvers": "^5.2.2",
 		"@opennextjs/cloudflare": "^1.14.4",
 		"@prisma/adapter-pg": "^7.2.0",
@@ -42,6 +43,8 @@
 		"react": "19.1.4",
 		"react-dom": "19.1.4",
 		"react-hook-form": "^7.71.1",
+		"react-speech-kit": "^3.0.1",
+		"react-text-to-speech": "^5.1.4",
 		"recharts": "^3.6.0",
 		"sonner": "^2.0.7",
 		"tailwind-merge": "^3.4.0",
@@ -55,6 +58,7 @@
 		"@types/node": "^20.19.30",
 		"@types/react": "^19",
 		"@types/react-dom": "^19",
+		"@types/react-speech-kit": "^3.0.0",
 		"eslint": "^9",
 		"eslint-config-next": "15.4.6",
 		"tailwindcss": "^4",
